@@ -1,0 +1,33 @@
+[project]
+name = "pgtestdbpy"
+version = "0.0.1"
+description = "pgtestdb Python clone"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+keywords = ["postgres", "testing"]
+authors = [
+  {name = "Oliver Russell", email = "ojhrussell@gmail.com"},
+]
+maintainers = [
+  {name = "Oliver Russell", email = "ojhrussell@gmail.com"},
+]
+classifiers = [
+  "Programming Language :: Python",
+]
+
+dependencies = [
+  "psycopg>=3.1.8",
+  "psycopg-binary>=3.1.8",
+  "psycopg-pool>=3.1.7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.2.2",
+]
+
+[project.urls]
+homepage = "https://github.com/leontrolski/pgtestdbpy"
+documentation = "https://github.com/leontrolski/pgtestdbpy"
+repository = "https://github.com/leontrolski/pgtestdbpy.git"
