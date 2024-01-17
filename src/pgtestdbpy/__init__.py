@@ -1,97 +1,135 @@
-QRY_USER_EXISTS = 'SELECT EXISTS (SELECT from pg_catalog.pg_roles WHERE rolname = $1)'
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
+import pathlib
+import random
+import subprocess
+import tempfile
+from typing import Any, Callable, Iterator
+
+import psycopg
+
+
+Conn = psycopg.Connection[tuple[Any, ...]]
+
+CMD_DB_INIT = "{initdb} -D {data_dir} --lc-messages=C -U postgres -A trust"
+CMD_DB_START = "{pg_ctl} -D {data_dir} -l {log_file} -o '-p {port}' start"
+CMD_DB_STOP = "{pg_ctl} -D {data_dir} stop"
+CMD_HARD_KILL = "lsof -t -i:{port} | xargs kill"
+URL = "postgres://{user}{password}@{host}:{port}/{db_name}"
+
+
+@dataclass(frozen=True)
+class InitConfig:
+    user: str = "postgres"
+    password: str | None = None
+    host: str = "localhost"
+    port: int = 8421
+    db_name: str = "postgres"  # used for idempotency
+
+    initdb: str = "initdb"
+    pg_ctl: str = "pg_ctl"
+
+    @property
+    def url(self) -> str:
+        return URL.format(
+            user=self.user,
+            password=":" + self.password if self.password else "",
+            host=self.host,
+            port=self.port,
+            db_name=self.db_name,
+        )
+
+
+@dataclass(frozen=True)
+class Migrator:
+    db_name: str  # used for idempotency
+    migrate: Callable[[Conn], None]
+    user: str = "test"
+    password: str = "test"
+    host: str = "localhost"
+    port: int = 8421
+
+    @property
+    def url(self) -> str:
+        return URL.format(
+            user=self.user,
+            password=":" + self.password if self.password else "",
+            host=self.host,
+            port=self.port,
+            db_name=self.db_name,
+        )
+
+    def clone(self) -> "Migrator":
+        suffix = "".join(random.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(16))
+        return replace(self, db_name=f"{self.db_name}_{suffix}")
+
+
+@contextmanager
+def initdb(config: InitConfig = InitConfig()) -> Iterator[Conn]:
+    with tempfile.TemporaryDirectory() as d:
+        temp_path = pathlib.Path(d).resolve()
+        data_dir = str(temp_path / "data")
+        log_file = str(temp_path / "log.txt")
+        subprocess.check_output(
+            CMD_DB_INIT.format(initdb=config.initdb, data_dir=data_dir),
+            shell=True,
+        )
+        subprocess.check_output(
+            CMD_DB_START.format(
+                pg_ctl=config.pg_ctl,
+                data_dir=data_dir,
+                log_file=log_file,
+                port=config.port,
+            ),
+            shell=True,
+        )
+        try:
+            with psycopg.connect(config.url, autocommit=True) as conn:
+                yield conn
+        finally:
+            subprocess.check_output(
+                CMD_DB_STOP.format(pg_ctl=config.pg_ctl, data_dir=data_dir),
+                shell=True,
+            )
+
+
+QRY_USER_EXISTS = "SELECT EXISTS (SELECT from pg_catalog.pg_roles WHERE rolname = %s)"
 QRY_USER_CREATE = 'CREATE ROLE "{user}"'
-QUERY_USER_ALTER = '''ALTER ROLE "{user}" WITH LOGIN PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE'''
-QRY_TEMPLATE_EXISTS = 'SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1 AND datistemplate = true)'
-QRY_TEMPLATE_CREATE = 'CREATE DATABASE "{template_name}" OWNER "{user}"'
-QRY_TEMPLATE_FINALIZE = 'UPDATE pg_database SET datistemplate = true WHERE datname=$1'
-QRY_DB_CLONE = 'CREATE DATABASE "{db_name}" WITH TEMPLATE "{template_name}" OWNER "{user}"'
+QRY_USER_ALTER = """ALTER ROLE "{user}" WITH LOGIN PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE"""
+QRY_TEMPLATE_EXISTS = "SELECT EXISTS (SELECT FROM pg_database WHERE datname = %s AND datistemplate = true)"
+QRY_TEMPLATE_CREATE = 'CREATE DATABASE "{template}" OWNER "{user}"'
+QRY_TEMPLATE_FINALIZE = "UPDATE pg_database SET datistemplate = true WHERE datname=%s"
+QRY_DB_CLONE = 'CREATE DATABASE "{db_name}" WITH TEMPLATE "{template}" OWNER "{user}"'
 QRY_DB_DROP = 'DROP DATABASE IF EXISTS "{db_name}"'
 
-# Hash migrations
-# Do only once per hash
 
-# lock = threading.Lock()
-# lock.acquire(blocking=True, timeout=3)
-# or with lock: ...
-# from psycopg_pool import ConnectionPool
-# ConnPostgres = psycopg.Connection[tuple[Any, ...]]
-# _pool: ConnectionPool | None = None
-# @contextmanager
-# def connection(db_url: str) -> Iterator[generic.ConnPostgres]:
-#     global _pool
-#     if _pool is None:
-#         _pool = ConnectionPool(db_url)
-#     with _pool.connection() as conn:
-#         yield conn
-# SEARCH_PATHS = (['/usr/local/pgsql', '/usr/local'] +
-#                 glob('/usr/pgsql-*') +  # for CentOS/RHEL
-#                 glob('/usr/lib/postgresql/*') +  # for Debian/Ubuntu
-#                 glob('/opt/local/lib/postgresql*'))  # for MacPorts
-# class Postgresql(Database):
-#     DEFAULT_SETTINGS = dict(auto_start=2,
-#                             base_dir=None,
-#                             initdb=None,
-#                             initdb_args='-U postgres -A trust',
-#                             postgres=None,
-#                             postgres_args='-h 127.0.0.1 -F -c logging_collector=off',
-#                             pid=None,
-#                             port=None,
-#                             copy_data_from=None)
-#     subdirectories = ['data', 'tmp']
-#     def initialize(self):
-#         self.initdb = self.settings.pop('initdb')
-#         if self.initdb is None:
-#             self.initdb = find_program('initdb', ['bin'])
-#         self.postgres = self.settings.pop('postgres')
-#         if self.postgres is None:
-#             self.postgres = find_program('postgres', ['bin'])
-#     def dsn(self, **kwargs):
-#         # "database=test host=localhost user=postgres"
-#         params = dict(kwargs)
-#         params.setdefault('port', self.settings['port'])
-#         params.setdefault('host', '127.0.0.1')
-#         params.setdefault('user', 'postgres')
-#         params.setdefault('database', 'test')
-#         return params
-#     def url(self, **kwargs):
-#         params = self.dsn(**kwargs)
-#         url = ('postgresql://%s@%s:%d/%s' %
-#                (params['user'], params['host'], params['port'], params['database']))
-#         return url
-#     def get_data_directory(self):
-#         return os.path.join(self.base_dir, 'data')
-#     def initialize_database(self):
-#         if not os.path.exists(os.path.join(self.base_dir, 'data', 'PG_VERSION')):
-#             args = ([self.initdb, '-D', os.path.join(self.base_dir, 'data'), '--lc-messages=C'] +
-#                     self.settings['initdb_args'].split())
-#             try:
-#                 p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-#                 output, err = p.communicate()
-#                 if p.returncode != 0:
-#                     raise RuntimeError("initdb failed: %r" % err)
-#             except OSError as exc:
-#                 raise RuntimeError("failed to spawn initdb: %s" % exc)
-#     def get_server_commandline(self):
-#         return ([self.postgres,
-#                  '-p', str(self.settings['port']),
-#                  '-D', os.path.join(self.base_dir, 'data'),
-#                  '-k', os.path.join(self.base_dir, 'tmp')] +
-#                 self.settings['postgres_args'].split())
-#     def poststart(self):
-#         with closing(pg8000.connect(**self.dsn(database='postgres'))) as conn:
-#             conn.autocommit = True
-#             with closing(conn.cursor()) as cursor:
-#                 cursor.execute("SELECT COUNT(*) FROM pg_database WHERE datname='test'")
-#                 if cursor.fetchone()[0] <= 0:
-#                     cursor.execute('CREATE DATABASE test')
-#     def is_server_available(self):
-#         try:
-#             with closing(pg8000.connect(**self.dsn(database='template1'))):
-#                 pass
-#         except pg8000.Error:
-#             return False
-#         else:
-#             return True
-#     def terminate(self, *args):
-#         # send SIGINT instead of SIGTERM
-#         super(Postgresql, self).terminate(signal.SIGINT if os.name != 'nt' else None)
+@contextmanager
+def build_templates(admin_conn: Conn, migrators: list[Migrator]) -> Iterator[None]:
+    c = admin_conn
+    for m in migrators:
+        [[user_exists]] = c.execute(QRY_USER_EXISTS, [m.user])
+        if not user_exists:
+            c.execute(QRY_USER_CREATE.format(user=m.user))
+            c.execute(QRY_USER_ALTER.format(user=m.user, password=m.password))
+        [[template_exists]] = c.execute(QRY_TEMPLATE_EXISTS, [m.db_name])
+        if not template_exists:
+            c.execute(QRY_TEMPLATE_CREATE.format(template=m.db_name, user=m.user))
+            with psycopg.connect(m.url) as conn:
+                m.migrate(conn)
+            c.execute(QRY_TEMPLATE_FINALIZE, [m.db_name])
+
+    yield
+
+
+@contextmanager
+def clone(admin_conn: Conn, migrator: Migrator) -> Iterator[Conn]:
+    clone = migrator.clone()
+    admin_conn.execute(
+        QRY_DB_CLONE.format(
+            db_name=clone.db_name, template=migrator.db_name, user=migrator.user
+        )
+    )
+    with psycopg.connect(clone.url, autocommit=True) as conn:
+        yield conn
+
+    admin_conn.execute(QRY_DB_DROP.format(db_name=clone.db_name))
