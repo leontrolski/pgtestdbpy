@@ -58,3 +58,4 @@ def conn(db: pgtestdbpy.Config) -> Iterator[pgtestdbpy.PsycoConn]:
 
 - Make it quicker.
 - Profile against `DELETE`ing or `TRUNCATE`ing data.
+- Publish to `pypi`.
