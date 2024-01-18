@@ -1,0 +1,17 @@
+version: "3.7"
+services:
+  db:
+    image: postgres:15.3-bullseye
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: postgres
+    volumes:
+      - type: tmpfs
+        target: /var/lib/postgresql/data/
+    command:
+      - "postgres"
+      - "-c" # turn off fsync for speed
+      - "fsync=off"
+    ports:
+      - "5432:5432"

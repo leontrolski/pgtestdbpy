@@ -1,31 +1,29 @@
 # pgtestdbpy
 
-Python clone of [pgtestdb](https://github.com/peterldowns/pgtestdb) (with further inspiration from [testing.postgresql](https://github.com/tk0miya/testing.postgresql)).
+_Python clone of [pgtestdb](https://github.com/peterldowns/pgtestdb)._
 
-_Not particularly useful as it's much slower for me than advertised in the original library (need to investigate why this is the case - it's 50-100ms per clone on my machine)._
+```bash
+pip install pgtestdbpy
+```
 
-There are two configuration dataclasses:
+In summary, it's a couple of helper functions that allow you to quickly clone Postgres databases that you've applied migrations to. In a small number of milliseconds, each test (including tests running in parallel) gets a fresh db with empty tables, all the sequences reset, etc.
 
-- `pgtestdbpy.initdb.Config` contains configuration to set up a database (with sane defaults).
-- `pgtestdbpy.initdb.Migrator` contains configuration for a set of migrations, most importantly a unique name - `db_name=` for the set of migrations and a function to perform them - `migrate=`.
+In developing this on my mac, for reasons I don't quite understand, running with Postgres in docker (via [colima](https://github.com/abiosoft/colima)) was substantially quicker that running Postgres natively. So I agree with Peter's advice, just copy [this file](docker-compose.yml) and `docker compose up -d db`.
 
-Then there are three functions that can be used in conjunction or independently depending on test setup:
+There are two context managers that can be used in conjunction or independently depending on test setup:
 
-- `pgtestdbpy.initdb(config)` - context manager that:
-    - Calls `initdb` to create a postgres db in a temporary directory.
-    - Yields.
-    - Stops and tears down the db.
-- `pgtestdbpy.build_templates(config, migrators)` - function that for each migrator:
-    - Checks for the existence of a test user and a template database. If they don't exist, it:
-    - Creates a new user and database.
+- `pgtestdbpy.templates(config, migrators)`:
+    - Creates a new user and database for a migrator.
     - Runs the set of migrations.
     - Marks the database as a `TEMPLATE DATABASE` so that it can be cheaply cloned.
-- `pgtestdbpy.clone(config, migrator)` - context manager that:
+    - Yields.
+    - Drops the template database and the user.
+- `pgtestdbpy.clone(config, migrator)`:
     - Does a `CREATE DATABASE WITH TEMPLATE` (from a template database made above) giving it a unique random name.
-    - Yields a postgres url for it.
+    - Yields a Postgres url for it.
     - Drops the database.
 
-Example `conftest.py` usage below, in theory (I haven't tested this) it should be easy to run tests in parallel using the `conn` fixture - each with a separate database instance - and [pytest-xdist](https://github.com/pytest-dev/pytest-xdist) or equivalent.
+Example `conftest.py` usage below, in theory (I haven't tested this) it should be easy to run tests in parallel using the `conn` fixture - each with a separate database instance - and [pytest-xdist](https://github.com/pytest-dev/pytest-xdist) or equivalent. In this example we just
 
 ```python
 from typing import Iterator
@@ -37,25 +35,17 @@ def migrate(url: str) -> None:
     with psycopg.connect(url) as conn:
         conn.execute("CREATE TABLE foo (a INT)")
 
-migrator = pgtestdbpy.Migrator("migrator", migrate)
-migrators = [migrator]
+migrator = pgtestdbpy.Migrator(migrate)
+config = pgtestdbpy.Config()
 
 @pytest.fixture(scope="session")
-def db() -> Iterator[pgtestdbpy.Config]:
-    config = pgtestdbpy.Config()
-    with pgtestdbpy.initdb(config):
-        pgtestdbpy.build_templates(config, migrators)
-        yield config
+def db() -> Iterator[None]:
+    with pgtestdbpy.templates(config, migrator):
+        yield
 
 @pytest.fixture()
-def conn(db: pgtestdbpy.Config) -> Iterator[pgtestdbpy.PsycoConn]:
-    with pgtestdbpy.clone(db, migrator) as url:
+def conn(db) -> Iterator[pgtestdbpy.PsycoConn]:
+    with pgtestdbpy.clone(config, migrator) as url:
         with psycopg.connect(url) as _conn:
             yield _conn
 ```
-
-# TODO
-
-- Make it quicker.
-- Profile against `DELETE`ing or `TRUNCATE`ing data.
-- Publish to `pypi`.

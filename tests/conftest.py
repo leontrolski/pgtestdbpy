@@ -10,20 +10,18 @@ def migrate(url: str) -> None:
         conn.execute("CREATE TABLE foo (a INT)")
 
 
-migrator = pgtestdbpy.Migrator("migrator", migrate)
-migrators = [migrator]
+migrator = pgtestdbpy.Migrator(migrate)
+config = pgtestdbpy.Config()
 
 
 @pytest.fixture(scope="session")
-def db() -> Iterator[pgtestdbpy.Config]:
-    config = pgtestdbpy.Config()
-    with pgtestdbpy.initdb(config):
-        pgtestdbpy.build_templates(config, migrators)
-        yield config
+def db() -> Iterator[None]:
+    with pgtestdbpy.templates(config, migrator):
+        yield
 
 
 @pytest.fixture()
-def conn(db: pgtestdbpy.Config) -> Iterator[pgtestdbpy.PsycoConn]:
-    with pgtestdbpy.clone(db, migrator) as url:
+def conn(db) -> Iterator[pgtestdbpy.PsycoConn]:
+    with pgtestdbpy.clone(config, migrator) as url:
         with psycopg.connect(url) as _conn:
             yield _conn
