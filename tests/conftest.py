@@ -1,25 +1,29 @@
 from typing import Iterator
 
 import pgtestdbpy
+import psycopg
 import pytest
 
 
-def migrate1(conn: pgtestdbpy.Conn) -> None:
-    conn.execute("CREATE TABLE foo (a INT)")
+def migrate(url: str) -> None:
+    with psycopg.connect(url) as conn:
+        conn.execute("CREATE TABLE foo (a INT)")
 
 
-migrator1 = pgtestdbpy.Migrator("migrator1", migrate1)
-migrators = [migrator1]
+migrator = pgtestdbpy.Migrator("migrator", migrate)
+migrators = [migrator]
 
 
 @pytest.fixture(scope="session")
-def admin_conn() -> Iterator[pgtestdbpy.Conn]:
-    with pgtestdbpy.initdb() as _admin_conn:
-        with pgtestdbpy.build_templates(_admin_conn, migrators):
-            yield _admin_conn
+def db() -> Iterator[pgtestdbpy.Config]:
+    config = pgtestdbpy.Config()
+    with pgtestdbpy.initdb(config):
+        pgtestdbpy.build_templates(config, migrators)
+        yield config
 
 
 @pytest.fixture()
-def conn(admin_conn: pgtestdbpy.Conn) -> Iterator[pgtestdbpy.Conn]:
-    with pgtestdbpy.clone(admin_conn, migrator1) as conn_:
-        yield conn_
+def conn(db: pgtestdbpy.Config) -> Iterator[pgtestdbpy.PsycoConn]:
+    with pgtestdbpy.clone(db, migrator) as url:
+        with psycopg.connect(url) as _conn:
+            yield _conn
