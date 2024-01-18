@@ -10,11 +10,11 @@ In summary, it's a couple of helper functions that allow you to quickly clone Po
 
 In developing this on my mac, for reasons I don't quite understand, running with Postgres in docker (via [colima](https://github.com/abiosoft/colima)) was substantially quicker that running Postgres natively. So I agree with Peter's advice, just copy [this file](docker-compose.yml) and `docker compose up -d db`.
 
-There are two context managers that can be used in conjunction or independently depending on test setup:
+The library consists of two context managers (that can be used in conjunction or independently depending on test setup):
 
-- `pgtestdbpy.templates(config, migrators)`:
-    - Creates a new user and database for a migrator.
-    - Runs the set of migrations.
+- `pgtestdbpy.templates(config, migrator)`:
+    - Creates a new user and database for the migrator.
+    - Runs migrations.
     - Marks the database as a `TEMPLATE DATABASE` so that it can be cheaply cloned.
     - Yields.
     - Drops the template database and the user.
@@ -23,7 +23,7 @@ There are two context managers that can be used in conjunction or independently 
     - Yields a Postgres url for it.
     - Drops the database.
 
-Example `conftest.py` usage below, in theory (I haven't tested this) it should be easy to run tests in parallel using the `conn` fixture - each with a separate database instance - and [pytest-xdist](https://github.com/pytest-dev/pytest-xdist) or equivalent. In this example we just
+Example `conftest.py` usage below, in theory (I haven't tested this) it should be easy to run tests in parallel using the `conn` fixture - each with a separate database instance - and [pytest-xdist](https://github.com/pytest-dev/pytest-xdist) or equivalent.
 
 ```python
 from typing import Iterator
