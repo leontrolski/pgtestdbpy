@@ -12,7 +12,7 @@ In developing this on my mac, for reasons I don't quite understand, running with
 
 The library consists of two context managers (that can be used in conjunction or independently depending on test setup):
 
-- `pgtestdbpy.templates(config, migrator)`:
+- `pgtestdbpy.template(config, migrator)`:
     - Creates a new user and database for the migrator.
     - Runs migrations.
     - Marks the database as a `TEMPLATE DATABASE` so that it can be cheaply cloned.
@@ -40,7 +40,7 @@ config = pgtestdbpy.Config()
 
 @pytest.fixture(scope="session")
 def db() -> Iterator[None]:
-    with pgtestdbpy.templates(config, migrator):
+    with pgtestdbpy.template(config, migrator):
         yield
 
 @pytest.fixture()

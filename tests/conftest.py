@@ -16,7 +16,7 @@ config = pgtestdbpy.Config()
 
 @pytest.fixture(scope="session")
 def db() -> Iterator[None]:
-    with pgtestdbpy.templates(config, migrator):
+    with pgtestdbpy.template(config, migrator):
         yield
 
 

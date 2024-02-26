@@ -65,7 +65,7 @@ QRY_DB_DROP = 'DROP DATABASE IF EXISTS "{db_name}"'
 
 
 @contextmanager
-def templates(config: Config, migrator: Migrator) -> Iterator[None]:
+def template(config: Config, migrator: Migrator) -> Iterator[None]:
     with psycopg.connect(config.url, autocommit=True) as c:
         c.execute(QRY_USER_CREATE.format(user=migrator.user))
         c.execute(QRY_USER_ALTER.format(user=migrator.user, password=migrator.password))
